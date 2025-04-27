@@ -5,7 +5,7 @@
   collections:
     - ansible.windows
   vars_files:
-    - ircs_secret.yaml
+    - secret.yaml
   tasks:
     - name: Ping erişimini kontrol et
       win_ping:

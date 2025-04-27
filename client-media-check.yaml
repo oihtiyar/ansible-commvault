@@ -1,0 +1,74 @@
+---
+- name: Ping ve Port Kontrolleri ile Commvault Servis Durumu
+  hosts: all
+  gather_facts: no
+  collections:
+    - ansible.windows
+  vars_files:
+    - ircs_secret.yaml
+  tasks:
+    - name: Ping erişimini kontrol et
+      win_ping:
+      register: ping_result
+      ignore_errors: true
+
+    - name: Port 8400'ü kontrol et
+      win_wait_for:
+        host: "{{ inventory_hostname }}"
+        port: 8400
+        state: started
+        timeout: 10
+      when: ping_result.ping is defined
+      register: port_8400_check_result
+      ignore_errors: true
+
+    - name: Port 8403'ü kontrol et
+      win_wait_for:
+        host: "{{ inventory_hostname }}"
+        port: 8403
+        state: started
+        timeout: 10
+      when: ping_result.ping is defined
+      register: port_8403_check_result
+      ignore_errors: true
+
+    - name: Commvault servislerinin durumunu al
+      win_service_info:
+        name: "{{ item }}"
+      loop:
+        - 'GxClMgrS(Instance001)'
+        - 'GxCVD(Instance001)'
+        - 'GxFWD(Instance001)'
+      when: ping_result.ping is defined
+      register: commvault_service_info
+      ignore_errors: true
+
+    - name: Sonuçları yazdır
+      debug:
+        msg: "--- {{ inventory_hostname }} ---"
+
+    - name: Ping sonucunu yazdır
+      debug:
+        msg: "  Ping başarılı: {{ ping_result.ping }}"
+      when: ping_result.ping is defined
+
+    - name: Port 8400 kontrol sonucunu yazdır
+      debug:
+        msg: "  Port 8400 açık\n"
+      when: ping_result.ping is defined and port_8400_check_result is defined
+
+    - name: Port 8403 kontrol sonucunu yazdır
+      debug:
+        msg: "  Port 8403 açık\n"
+      when: ping_result.ping is defined and port_8403_check_result is defined
+
+    - name: Commvault servis durumlarını yazdır
+      debug:
+        msg: >-
+          {% if item.exists and item.services|length > 0 %}
+            {{ item.services[0].display_name }}: {{ item.services[0].state }}
+          {% else %}
+            {{ item.item }}: Servis bilgisi alınamadı
+          {% endif %}
+      loop: "{{ commvault_service_info.results }}"
+      when: ping_result.ping is defined and commvault_service_info is defined

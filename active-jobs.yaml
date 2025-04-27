@@ -1,0 +1,89 @@
+---
+- name: Commvault API Process
+  hosts: localhost
+  gather_facts: no
+  vars_files:
+    - commvault_secrets.yml
+  tasks:
+    - name: Vault'tan kullanıcı adı ve şifreyi oku
+      set_fact:
+        api_username: "{{ commvault.username }}"
+        api_password: "{{ commvault.password | b64encode }}"
+    - name: API için giriş verisini hazırla
+      set_fact:
+        login_data:
+          username: "{{ api_username }}"
+          password: "{{ api_password }}"
+          timeout: 30
+    - name: Token almak için API'ye istek gönder
+      uri:
+        url: https://yourcomcellfqdnorip/webconsole/api/Login
+        method: POST
+        body_format: json
+        body: "{{ login_data }}"
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+        return_content: yes
+        validate_certs: no
+      register: login_response
+    - name: API yanıtını kontrol et
+      debug:
+        var: login_response.json
+    - name: Token'ı ayarla
+      set_fact:
+        token: "{{ login_response.json.token | default('TOKEN_BULUNAMADI') }}"
+    - name: API Token'ı doğrula
+      debug:
+        msg: "Alınan Token: {{ token }}"
+    - name: Aktif iş listesini almak için API'ye istek gönder
+      uri:
+        url: https://yourcommcelfqdnorip/webconsole/api/Job
+        method: GET
+        headers:
+          Accept: application/json
+          Authtoken: "{{ token }}"
+        body: |
+          {
+            "pagingConfig": {
+              "sortDirection": 1,
+              "offset": 0,
+              "sortField": "jobStartTime",
+              "limit": 1 # Tüm işleri getirmek için limit 0 yapıldı
+            },
+            "jobFilter": {
+              "statusList": [
+                "Running"
+              ]
+              #"category": 1  # Sadece Aktif işler (API'ye bağlı olarak çalışmayabilir)
+            }
+          }
+        body_format: json
+        return_content: yes
+        validate_certs: no
+        timeout: 300
+      register: job_list_response
+
+    - name: API yanıtını kontrol et (İş Listesi - Ham)
+      debug:
+        var: job_list_response
+
+    - name: API yanıtını JSON dosyasına kaydet
+      copy:
+        content: "{{ job_list_response.json | to_nice_json }}"
+        dest: /tmp/active_job_list_response.json # Dosya adı güncellendi
+      delegate_to: localhost
+
+    - name: Aktif iş listesi verisini "job_list" olarak ayarla
+      set_fact:
+        #job_list: "{{ job_list_response.json.jobs | default([]) }}"
+        job_list: "{{ job_list_response.json.jobs | map(attribute='jobSummary') | list | default([]) }}"
+
+    - name: HTML çıktısı için aktif iş listesi oluştur
+      template:
+        src: job_list_template.html.j2
+        dest: /tmp/active_job_list.html # Dosya adı güncellendi
+
+    - name: HTML dosyasının içeriğini ekrana yazdır
+      debug:
+        msg: "Aktif iş listesi HTML çıktısı başarıyla oluşturuldu: /tmp/active_job_list.html"
